@@ -1,0 +1,91 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+**
+treatment group: homes less than 2000 feet from Richards Road Apartments (LIHTC.csv)
+control group: homes that are 2000-3000 feet from development
+
+goal: find sales of these homes that took place between 1 to 5 years before the development & 1 to 5 years after the development. 
+  - use pre and post sales
+  
+Use difference and differences approach to estimate whether development had impact on sales price. 
+
+Create basic model for sales amount pre/post and control/treatment varibales only
+
+Question: Can we conclude that the sales price for nearby homes was affected by the development?
+
+Additional predictors can be added in such as sq footage, age of home. can use log of sales price as the target.
+
+Finally, try instead of using a binary variable for before or after to use a tpost variable incicating the number of years before or after the development that the sale took place. Do your conclusions change?**
+
+
+```{r}
+library(sf)
+library(tidyverse)
+```
+
+
+**About the Data**
+The following datasets have been provided for your analysis (download them [here](https://drive.google.com/drive/folders/1zWaLMIVQQuZXp4HHvtdeGpOZ5QYeWGPT?usp=share_link)):
+
+1. filtered_sales.csv:
+	* Contains sales of single family homes from 1995 to October of 2022. 
+	* Non arms-length transactions and transactions for parcels which did not have a house on them at the time of sale. This was done by removing any transations for $0, any transactions for which the adjacent appraisal values showed $0 for improvents, and any for which the transaction amount was less than half of the adjacent appraisals. 
+	* Optional: If you would like to work with the full dataset, all transactions are contained in full_sales.csv and the assessment values are in assessment.csv.
+	
+```{r}
+filtered_sales <- read_csv("Affordable_Housing/filtered_sales.csv")
+filtered_sales
+```
+
+
+2. LIHTC.csv
+	* Details of affordable housing developments funded by the LIHTC program.
+	* Refer to the included data dictionary for variable descriptions.
+	
+```{r}
+LIHTC <- read_csv("Affordable_Housing/LIHTC.csv")|> 
+  rename_all(tolower)
+```
+	
+
+3. barnes.csv
+	* Contains information on rental properties that are completed and have more than 10 units which were funded by the Barnes Fund.
+```{r}
+barnes <- read_csv("Affordable_Housing/barnes.csv") |> 
+  rename(latitude = lat, longitude = lng)
+barnes
+```
+	
+
+4. property_details.csv
+	* Contains detailed information on each property, including year built, square footage, number of rooms, and location (lat/lng).
+	
+```{r}
+property_details <- read_csv("Affordable_Housing/property_details.csv")
+```
+	
+	
+```{r}
+detailed_sales <- right_join(property_details, filtered_sales)
+detailed_sales
+```
+```{r}
+detailed_sales |>
+mutate(
+    longitude = as.numeric(str_extract(`centroid`, "\\((.+),", group = 1)),
+    latitude = as.numeric(str_extract(`centroid`, ",(.+)\\)", group = 1))
+    ) |> 
+  select(-centroid)
+  
+```
+
+
+
+```{r}
+LIHTC
+```
+	
