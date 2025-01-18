@@ -25,47 +25,52 @@ Finally, try instead of using a binary variable for before or after to use a tpo
 ```{r}
 library(sf)
 library(tidyverse)
+library ("geosphere") 
 ```
+
 
 
 **About the Data**
 The following datasets have been provided for your analysis (download them [here](https://drive.google.com/drive/folders/1zWaLMIVQQuZXp4HHvtdeGpOZ5QYeWGPT?usp=share_link)):
 
 1. filtered_sales.csv:
-	* Contains sales of single family homes from 1995 to October of 2022. 
+	*Contains sales of single family homes from 1995 to October of 2022.*
 	* Non arms-length transactions and transactions for parcels which did not have a house on them at the time of sale. This was done by removing any transations for $0, any transactions for which the adjacent appraisal values showed $0 for improvents, and any for which the transaction amount was less than half of the adjacent appraisals. 
 	* Optional: If you would like to work with the full dataset, all transactions are contained in full_sales.csv and the assessment values are in assessment.csv.
-	
+
+
 ```{r}
-filtered_sales <- read_csv("Affordable_Housing/filtered_sales.csv")
+filtered_sales <- read_csv("../Affordable_Housing/filtered_sales.csv")
 filtered_sales
 ```
 
 
 2. LIHTC.csv
-	* Details of affordable housing developments funded by the LIHTC program.
+	*Details of affordable housing developments funded by the LIHTC program.*
 	* Refer to the included data dictionary for variable descriptions.
 	
 ```{r}
-LIHTC <- read_csv("Affordable_Housing/LIHTC.csv")|> 
+LIHTC <- read_csv("../Affordable_Housing/LIHTC.csv")|> 
   rename_all(tolower)
+LIHTC
 ```
 	
 
 3. barnes.csv
-	* Contains information on rental properties that are completed and have more than 10 units which were funded by the Barnes Fund.
+	*Contains information on rental properties that are completed and have more than 10 units which were funded by the Barnes Fund.*
 ```{r}
-barnes <- read_csv("Affordable_Housing/barnes.csv") |> 
+barnes <- read_csv("../Affordable_Housing/barnes.csv") |> 
   rename(latitude = lat, longitude = lng)
 barnes
 ```
 	
 
 4. property_details.csv
-	* Contains detailed information on each property, including year built, square footage, number of rooms, and location (lat/lng).
+	*Contains detailed information on each property, including year built, square footage, number of rooms, and location (lat/lng).*
 	
 ```{r}
-property_details <- read_csv("Affordable_Housing/property_details.csv")
+property_details <- read_csv("../Affordable_Housing/property_details.csv")
+property_details
 ```
 	
 	
@@ -73,19 +78,163 @@ property_details <- read_csv("Affordable_Housing/property_details.csv")
 detailed_sales <- right_join(property_details, filtered_sales)
 detailed_sales
 ```
+
 ```{r}
-detailed_sales |>
+detailed_sales <- detailed_sales |>
 mutate(
     longitude = as.numeric(str_extract(`centroid`, "\\((.+),", group = 1)),
     latitude = as.numeric(str_extract(`centroid`, ",(.+)\\)", group = 1))
     ) |> 
+  relocate('latitude', .before = 'longitude') |> 
   select(-centroid)
-  
+```
+
+
+```{r}
+detailed_sales_geo <- st_as_sf(
+  detailed_sales,
+  coords = c('latitude', 'longitude'),
+  remove = FALSE,
+  crs = st_crs(4326)
+)
+# plot(detailed_sales_geo$geometry)
+
 ```
 
 
 
 ```{r}
-LIHTC
+LIHTC_geo <- st_as_sf(
+  LIHTC,
+  coords = c('latitude', 'longitude'),
+  remove = FALSE,
+  crs = st_crs(4326)
+)
+
 ```
-	
+*Look at the Park at Richards Road Apartments, which are contained in LIHTC.csv and have a HUD ID of TNA20130015. These were allocated in 2012 and placed in service in 2013.*
+
+
+```{r}
+Richmond_LIHTC_geo <-LIHTC_geo |> 
+  filter(hud_id == 'TNA20130015')
+Richmond_LIHTC_geo
+```
+
+*Find all homes that are less than 2000 feet from this development (our "treatment" group)*
+*Five Years Prior to 2012*
+
+
+```{r}
+treament_group_pre <- detailed_sales_geo |> 
+  mutate(distance_in_feet = as.numeric(st_distance(geometry, st_geometry(Richmond_LIHTC_geo)))) |> 
+  mutate(distance_in_feet = distance_in_feet*3.28084) |>
+  filter(between(ownerdate, as.Date('2006-12-31'), as.Date('2011-12-11'))) |> 
+  filter(distance_in_feet < 2000) |>
+  st_drop_geometry()
+treament_group_pre
+```
+
+```{r}
+treament_group_post <- detailed_sales_geo |> 
+  mutate(distance_in_feet = as.numeric(st_distance(geometry, st_geometry(Richmond_LIHTC_geo)))) |> 
+  mutate(distance_in_feet = distance_in_feet*3.28084) |>
+  filter(between(ownerdate, as.Date('2014-01-01'), as.Date('2019-01-01'))) |> 
+  filter(distance_in_feet < 2000) |> 
+  st_drop_geometry()
+treament_group_post
+```
+
+
+
+*homes that are between 2000 and 3000 feet from this development (our "control" group).*
+*Five Years Prior to 2012*
+
+```{r}
+control_group_pre <- detailed_sales_geo |> 
+  mutate(distance_in_feet = as.numeric(st_distance(geometry, st_geometry(Richmond_LIHTC_geo)))) |> 
+  mutate(distance_in_feet = distance_in_feet*3.28084) |>
+  filter(between(ownerdate, as.Date('2006-12-31'), as.Date('2011-12-11'))) |> 
+  filter(distance_in_feet > 2000 & distance_in_feet < 3000) |> 
+  st_drop_geometry()
+control_group_pre
+```
+
+
+
+```{r}
+control_group_post <- detailed_sales_geo |> 
+  mutate(distance_in_feet = as.numeric(st_distance(geometry, st_geometry(Richmond_LIHTC_geo)))) |> 
+  mutate(distance_in_feet = distance_in_feet*3.28084) |>
+  filter(between(ownerdate, as.Date('2014-01-01'), as.Date('2019-01-01'))) |> 
+  filter(distance_in_feet > 2000 & distance_in_feet < 3000) |> 
+  st_drop_geometry()
+```
+
+
+*Use a difference in differences approach to estimate whether this development had an impact on sales prices. Start with a basic model for the sales amount based on the pre/post and treatment/control variables only. Can we conclude that the sales price for nearby homes was affected by the development?*
+
+
+```{r}
+combined_data <- bind_rows(
+  mutate(treament_group_pre, group = "Treatment", time = "Pre"),
+  mutate(treament_group_post, group = "Treatment", time = "Post"),
+  mutate(control_group_pre, group = "Control", time = "Pre"),
+  mutate(control_group_post, group = "Control", time = "Post")
+)
+```
+
+
+```{r}
+combined_data
+```
+
+```{r}
+combined_data <- combined_data |> 
+  mutate(time = factor(time, levels = c('Pre', 'Post')))
+```
+
+
+```{r}
+combined_data
+```
+
+
+```{r}
+model <- glm(amount ~ group + time + (group:time), data = combined_data)
+summary(model)
+```
+
+*After doing this basic model, you might try adding some predictors to your model, like the square footage or age of the home. You might also try using the log of the sales price as the target.*
+
+
+
+```{r}
+size_model <- glm(amount ~ square_footage + group + time + (group:time), data= combined_data)
+summary(size_model)
+```
+```{r}
+age_model <- glm(amount ~ year_built + group + time + (group:time), data = combined_data)
+summary(age_model)
+```
+
+```{r}
+log_model <- glm(log(amount) ~ group + time + (group:time), data = combined_data)
+summary(log_model)
+```
+*Finally, try instead of using a binary variable for before or after to use a tpost variable incicating the number of years before or after the development that the sale took place. Do your conclusions change?*
+
+
+```{r}
+t_post_model <- glm(amount ~ time + I(ownerdate - 2013) + time:I(ownerdate - 2013), data = combined_data)
+summary(t_post_model)
+```
+
+
+
+
+
+
+
+
+
